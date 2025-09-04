@@ -89,12 +89,21 @@ model = base.merge(df_channels, on="_k").drop(columns="_k")
 # Attach conversion assumptions
 model = model.merge(df_conv, on="Channel", how="left", suffixes=("","_conv"))
 
-# Effective conversion
-conv = (model["Base_Conversion_Rate"].fillna(0.0) * conv_mult_all)
+# ---- Effective conversion (safe) ----
+# Start from base, apply global multiplier + QR uplift + optional relevance uplift
+conv = (model["Base_Conversion_Rate"].astype(float).fillna(0.0) * conv_mult_all)
+
 is_qr = model["Channel"].str.lower().eq("disney+ qr")
 conv = np.where(is_qr, conv * qr_uplift, conv)
-conv = np.where(model.get("Relevance_Score", pd.Series([0]*len(model))).fillna(0) >= 0.9, conv * dsp_uplift, conv)
-model["Conversion_Effective_Base"] = conv.clip(lower=0.0)
+
+rel = model.get("Relevance_Score")
+if rel is not None:
+    rel = pd.to_numeric(rel, errors="coerce").fillna(0.0)
+    conv = np.where(rel >= 0.9, conv * dsp_uplift, conv)
+
+# Ensure numeric and non-negative to avoid .clip type issues
+conv = pd.to_numeric(pd.Series(conv), errors="coerce").fillna(0.0)
+model["Conversion_Effective_Base"] = np.maximum(conv.values, 0.0)
 
 # Base exposure
 model["Effective_Viewers_Base"] = model["Viewers_Exposed"].fillna(0) * ad_alloc
