@@ -1,0 +1,4 @@
+Title_ID,Franchise,Trigger,Extra_Minutes,Conv_Uplift_X,Slot_Fill_Percent,Apply_To_Channels
+T002,Frozen,Song,2.0,1.6,1.0,"['ShopDisney','Disney+ QR']"
+T005,Marvel,Fight,1.5,1.4,0.8,"['Amazon','ShopDisney','Disney+ QR']"
+T010,Star Wars,Character Intro,1.5,1.5,1.0,"['ShopDisney','Disney+ QR']"
