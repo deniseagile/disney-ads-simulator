@@ -245,18 +245,36 @@ compare_df = pd.DataFrame({
 }).set_index("Scenario")
 
 st.markdown("### Impact: Current vs Contextual vs Scene-Triggered")
-fig, ax = plt.subplots()
-bars = ax.bar(compare_df.index, compare_df["Net_Revenue"], color=["gray", "royalblue", "gold"])
-ax.set_ylabel("Net Revenue (USD)")
-ax.set_title("Revenue per 1M Viewers")
 
-# $ labels above bars
+fig, ax = plt.subplots(figsize=(7.5, 4.8))
+
+bars = ax.bar(
+    compare_df.index,
+    compare_df["Net_Revenue"],
+    color=["#9aa0a6", "#4169e1", "#f4c430"],  # gray, royal blue, gold
+    width=0.62,
+)
+
+ax.set_ylabel("Net Revenue (USD)")
+ax.set_title("Revenue per 1M Viewers", fontsize=14, pad=12)
+
+# headroom so annotations don’t collide
+ymax = float(compare_df["Net_Revenue"].max())
+ax.set_ylim(0, ymax * 1.35)   # add ~35% headroom
+ax.margins(x=0.10)             # a bit of side padding
+
+# $ labels INSIDE bars (near the top, centered)
 for bar, val in zip(bars, compare_df["Net_Revenue"]):
     label = f"${val/1_000:.0f}K" if val < 1_000_000 else f"${val/1_000_000:.1f}M"
-    ax.text(bar.get_x() + bar.get_width()/2, val * 1.02, label,
-            ha='center', va='bottom', fontsize=10, fontweight="bold")
+    ax.text(
+        bar.get_x() + bar.get_width()/2,
+        val * 0.97,                   # inside the bar
+        label,
+        ha="center", va="top",
+        fontsize=11, fontweight="bold", color="black"
+    )
 
-# Uplift annotations vs Current
+# Uplift annotations vs Current (placed ABOVE bars with arrows)
 current = float(compare_df.loc["Current Ads", "Net_Revenue"])
 contextual = float(compare_df.loc["Contextual Ads", "Net_Revenue"])
 scene = float(compare_df.loc["Scene-Triggered Ads", "Net_Revenue"])
@@ -267,13 +285,31 @@ if current > 0:
     scene_factor = scene / current
 
     x_positions = [b.get_x() + b.get_width()/2 for b in bars]
-    heights = [b.get_height() for b in bars]
+    heights    = [b.get_height() for b in bars]
 
-    ax.text(x_positions[1], heights[1] * 1.08, f"+{uplift_ctx_pct*100:.0f}% vs Current",
-            ha='center', va='bottom', fontsize=10, color="royalblue")
-    ax.text(x_positions[2], heights[2] * 1.08, f"+{uplift_scene_pct*100:.0f}% vs Current  •  {scene_factor:.1f}×",
-            ha='center', va='bottom', fontsize=10, color="goldenrod")
+    # Contextual callout
+    ax.annotate(
+        f"+{uplift_ctx_pct*100:.0f}% vs Current",
+        xy=(x_positions[1], heights[1]), xycoords="data",
+        xytext=(0, 14), textcoords="offset points",
+        ha="center", va="bottom", fontsize=10, color="#4169e1",
+        arrowprops=dict(arrowstyle="-", color="#4169e1", lw=1)
+    )
 
+    # Scene callout (percent + factor)
+    ax.annotate(
+        f"+{uplift_scene_pct*100:.0f}% vs Current  •  {scene_factor:.1f}×",
+        xy=(x_positions[2], heights[2]), xycoords="data",
+        xytext=(0, 16), textcoords="offset points",
+        ha="center", va="bottom", fontsize=10, color="#b8860b",
+        arrowprops=dict(arrowstyle="-", color="#b8860b", lw=1)
+    )
+
+# Tidy up ticks/fonts
+ax.tick_params(axis="x", labelsize=11)
+ax.tick_params(axis="y", labelsize=10)
+
+plt.subplots_adjust(top=0.86)  # extra top padding for title + callouts
 st.pyplot(fig)
 
 # ---------------- Channel summary ----------------
