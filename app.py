@@ -107,7 +107,8 @@ model["Effective_Viewers"] = model["Viewers_Exposed"].fillna(0.0) * model["Alloc
 conv = model["Base_Conversion_Rate"].astype(float).fillna(0.0) * conv_mult_all
 is_qr = model["Channel"].str.lower().eq("disney+ qr")
 conv = np.where(is_qr, conv * qr_uplift, conv)
-model["Conversion_Effective"] = np.maximum(pd.to_numeric(conv, errors="coerce").fillna(0.0), 0.0)
+conv_series = pd.to_numeric(pd.Series(conv, index=model.index), errors="coerce").fillna(0.0)
+model["Conversion_Effective"] = np.maximum(conv_series.values, 0.0)
 
 # ---------------- Units & Revenue per channel ----------------
 price = model["Price"].fillna(0.0)
