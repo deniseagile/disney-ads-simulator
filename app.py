@@ -3,6 +3,7 @@ import os, ast
 import numpy as np
 import pandas as pd
 import streamlit as st
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Disney+ Contextual Ads with Scene Triggers", layout="wide")
 st.title("🎬 Disney+ Contextual Merch — Normalized Model + Scene Triggers")
@@ -10,14 +11,14 @@ st.caption("Upload normalized CSVs (products, titles, map, viewership, channels,
 
 # ---------------- Sidebar Uploaders ----------------
 with st.sidebar:
-    st.header("📥 Upload normalized CSVs")
-    prods = st.file_uploader("products.csv", type="csv")
-    titles = st.file_uploader("content_titles.csv", type="csv")
-    cpmap = st.file_uploader("content_product_map.csv", type="csv")
-    views = st.file_uploader("viewership.csv", type="csv")
-    chans = st.file_uploader("channels.csv", type="csv")
-    convs = st.file_uploader("conversion_assumptions.csv", type="csv")
-    scenes = st.file_uploader("scenes_normalized.csv (optional)", type="csv")
+#    st.header("📥 Upload normalized CSVs")
+#    prods = st.file_uploader("products.csv", type="csv")
+#    titles = st.file_uploader("content_titles.csv", type="csv")
+#    cpmap = st.file_uploader("content_product_map.csv", type="csv")
+#    views = st.file_uploader("viewership.csv", type="csv")
+#    chans = st.file_uploader("channels.csv", type="csv")
+#    convs = st.file_uploader("conversion_assumptions.csv", type="csv")
+#    scenes = st.file_uploader("scenes_normalized.csv (optional)", type="csv")
 
     st.markdown("---")
     st.header("⚙️ Controls")
@@ -28,6 +29,9 @@ with st.sidebar:
     apply_amazon_fee_override = st.checkbox("Force 30% Amazon fee", value=True)
     affiliate_on = st.checkbox("Include Amazon affiliate rebate", value=True)
     respect_inventory = st.checkbox("Respect inventory caps", value=True)
+    # ---- Status Quo (External Ads) CPM baseline ----
+    cpm = st.slider("CPM for Status Quo ($ per 1,000 impressions)", 10, 80, 30, 1)
+
 
 def load_or_sample(path, uploaded):
     if uploaded is not None:
@@ -64,6 +68,9 @@ for c in ["Price","Cost","Inventory_Level"]:
     df_products[c] = pd.to_numeric(df_products[c], errors="coerce")
 df_views["Viewers_Exposed"] = pd.to_numeric(df_views["Viewers_Exposed"], errors="coerce")
 df_views["Ad_Impressions"] = pd.to_numeric(df_views["Ad_Impressions"], errors="coerce")
+# ---- Status Quo net revenue from total impressions ----
+total_impressions = float(df_views["Ad_Impressions"].fillna(0).sum())
+statusquo_net = (total_impressions / 1000.0) * cpm
 for c in ["Amazon_Fee_Percent","Affiliate_Commission_Percent"]:
     df_channels[c] = pd.to_numeric(df_channels[c], errors="coerce")
 df_conv["Base_Conversion_Rate"] = pd.to_numeric(df_conv["Base_Conversion_Rate"], errors="coerce")
@@ -208,6 +215,26 @@ c1, c2, c3 = st.columns(3)
 c1.metric("Contextual Merch — Base ($)", f"{total_net_base:,.0f}")
 c2.metric("Contextual Merch — With Scenes ($)", f"{total_net_final:,.0f}", delta=f"{(total_net_final-total_net_base):,.0f}")
 c3.metric("Extra Units from Scene Triggers", f"{incr_units_total:,.0f}")
+# ---- Compare Current vs Contextual vs Scene-Triggered ----
+compare_df = pd.DataFrame({
+    "Scenario": ["Current Ads", "Contextual Ads", "Scene-Triggered Ads"],
+    "Net_Revenue": [float(statusquo_net), float(total_net_base), float(total_net_final)]
+}).set_index("Scenario")
+
+st.markdown("### Impact: Current vs Contextual vs Scene-Triggered")
+
+fig, ax = plt.subplots()
+bars = ax.bar(compare_df.index, compare_df["Net_Revenue"], color=["gray", "royalblue", "gold"])
+ax.set_ylabel("Net Revenue (USD)")
+ax.set_title("Revenue per 1M Viewers")
+
+# Add labels above bars
+for bar, val in zip(bars, compare_df["Net_Revenue"]):
+    label = f"${val/1_000:.0f}K" if val < 1_000_000 else f"${val/1_000_000:.1f}M"
+    ax.text(bar.get_x() + bar.get_width()/2, val * 1.02, label,
+            ha='center', va='bottom', fontsize=10, fontweight="bold")
+
+st.pyplot(fig)
 
 # ---------------- Channel summary ----------------
 st.markdown("### Channel Performance")
@@ -246,3 +273,4 @@ st.dataframe(model[have].sort_values(["Title_Name","SKU","Channel"]).reset_index
 
 st.markdown("---")
 st.caption("Scenes file can match on Franchise. Extra minutes → slots (2 × 30s). Extra exposure = viewers × allocation × fill × slots. Inventory caps apply.")
+
