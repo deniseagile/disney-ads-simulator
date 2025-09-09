@@ -22,10 +22,11 @@ with st.sidebar:
     conv_mult_all = st.slider("Conversion multiplier (global)", 0.25, 2.5, 1.0, 0.05)
     qr_uplift = st.slider("QR uplift × (applied to QR only)", 1.0, 3.0, 1.5, 0.1)
 
-    apply_amazon_fee_override = st.checkbox("Force Amazon fee = 30%", value=True)
-    affiliate_on = st.checkbox("Apply Amazon affiliate rebate", value=True)
-    respect_inventory = st.checkbox("Respect inventory caps (per channel)", value=True)
-
+amz_fee = np.where(
+    model["Channel"].str.lower().eq("amazon"),
+    0.30 if apply_amazon_fee_override else model.get("Amazon_Fee_Percent", pd.Series(0, index=model.index)).fillna(0.0),
+    0.0
+)
     st.markdown("---")
     cpm = st.slider("Status-Quo CPM ($ / 1,000 impressions)", 10, 120, 30, 1)
 
