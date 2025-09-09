@@ -126,13 +126,11 @@ else:
     model["Units_Sold"] = model["Units_Raw"]
 
 # Fees (Amazon)
-if apply_amazon_fee_override:
-    amz_fee = np.where(model["Channel"].str.lower().eq("amazon"), 0.30, 0.0)
-else:
-    amz_fee = np.where(model["Channel"].str.lower().eq("amazon"),
-                       model.get("Amazon_Fee_Percent", pd.Series(0, index=model.index)).fillna(0.0),
-                       0.0)
-model["Amazon_Fee_Effective"] = amz_fee
+amz_fee = np.where(
+    model["Channel"].str.lower().eq("amazon"),
+    0.30 if apply_amazon_fee_override else model.get("Amazon_Fee_Percent", pd.Series(0, index=model.index)).fillna(0.0),
+    0.0
+)
 
 # Revenue pieces
 model["Revenue_Gross"] = model["Units_Sold"] * price
