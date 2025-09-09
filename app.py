@@ -1,5 +1,4 @@
 # app.py — Disney+ Current Ads vs Merch (Amazon, ShopDisney, QR)
-import os
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -7,26 +6,31 @@ import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Disney+ Ads vs Merch (Amazon / ShopDisney / QR)", layout="wide")
 st.title("🎬 Disney+ Revenue: Current Ads vs Merch by Channel")
-st.caption("Loads CSVs from the repo (no uploads). Compare status-quo external ads vs merchandising via Amazon, ShopDisney, and Disney+ QR.")
+st.caption(
+    "Loads CSVs from the repo (no uploads). Compare status-quo external ads vs merchandising via "
+    "Amazon, ShopDisney, and Disney+ QR."
+)
 
-# ---------------- Sidebar controls ----------------
+# ───────────────────────── Sidebar controls ─────────────────────────
 with st.sidebar:
     st.header("⚙️ Global Controls")
-    # Allocation sliders (we'll normalize to 100%)
+
+    # Allocation sliders (we will normalize to 100% automatically)
     alloc_amz = st.slider("Alloc to Amazon (%)", 0, 100, 30, 5)
     alloc_shop = st.slider("Alloc to ShopDisney (%)", 0, 100, 35, 5)
     alloc_qr = st.slider("Alloc to Disney+ QR (%)", 0, 100, 35, 5)
-    total_alloc = max(alloc_amz + alloc_shop + alloc_qr, 1)  # avoid divide-by-zero
-    st.caption(f"Total merch allocation: **{alloc_amz + alloc_shop + alloc_qr}%** (auto-normalized)")
+    total_alloc_pct = alloc_amz + alloc_shop + alloc_qr
+    total_alloc = max(total_alloc_pct, 1)  # avoid divide-by-zero
+    st.caption(f"Total merch allocation: **{total_alloc_pct}%** (auto-normalized)")
 
     conv_mult_all = st.slider("Conversion multiplier (global)", 0.25, 2.5, 1.0, 0.05)
     qr_uplift = st.slider("QR uplift × (applied to QR only)", 1.0, 3.0, 1.5, 0.1)
 
-amz_fee = np.where(
-    model["Channel"].str.lower().eq("amazon"),
-    0.30 if apply_amazon_fee_override else model.get("Amazon_Fee_Percent", pd.Series(0, index=model.index)).fillna(0.0),
-    0.0
-)
+    st.markdown("---")
+    apply_amazon_fee_override = st.checkbox("Force Amazon fee = 30%", value=True)
+    affiliate_on = st.checkbox("Apply Amazon affiliate rebate", value=True)
+    respect_inventory = st.checkbox("Respect inventory caps (per channel)", value=True)
+
     st.markdown("---")
     cpm = st.slider("Status-Quo CPM ($ / 1,000 impressions)", 10, 120, 30, 1)
 
@@ -37,7 +41,7 @@ alloc = {
     "Disney+ QR": alloc_qr / total_alloc,
 }
 
-# ---------------- Data loading (repo-only) ----------------
+# ───────────────────────── Data loading (repo-only) ─────────────────────────
 def read_csv_or_none(path: str):
     try:
         return pd.read_csv(path)
@@ -65,7 +69,7 @@ df_views = dfs["viewership.csv"]
 df_channels = dfs["channels.csv"]
 df_conv = dfs["conversion_assumptions.csv"]
 
-# ---------------- Type safety ----------------
+# ───────────────────────── Type safety ─────────────────────────
 for c in ["Price", "Cost", "Inventory_Level"]:
     df_products[c] = pd.to_numeric(df_products[c], errors="coerce").fillna(0.0)
 df_views["Viewers_Exposed"] = pd.to_numeric(df_views["Viewers_Exposed"], errors="coerce").fillna(0.0)
@@ -76,7 +80,7 @@ for c in ["Amazon_Fee_Percent", "Affiliate_Commission_Percent"]:
 df_conv["Base_Conversion_Rate"] = pd.to_numeric(df_conv.get("Base_Conversion_Rate", 0.0), errors="coerce").fillna(0.0)
 df_conv["QR_Uplift_X"] = pd.to_numeric(df_conv.get("QR_Uplift_X", 1.0), errors="coerce").fillna(1.0)
 
-# ---------------- Build modeling frame ----------------
+# ───────────────────────── Build modeling frame ─────────────────────────
 # Title × SKU base
 base = (
     df_cpmap.merge(df_titles, on="Title_ID", how="left")
@@ -99,7 +103,7 @@ model = base.merge(df_channels, on="_k").drop(columns="_k")
 # Attach conversion assumptions
 model = model.merge(df_conv, on="Channel", how="left")
 
-# ---------------- Per-channel allocation & conversion ----------------
+# ───────────────────────── Per-channel allocation & conversion ─────────────────────────
 # Effective viewers per channel = title viewers × allocation(channel)
 model["Alloc"] = model["Channel"].map(alloc).fillna(0.0)
 model["Effective_Viewers"] = model["Viewers_Exposed"].fillna(0.0) * model["Alloc"]
@@ -111,25 +115,23 @@ conv = np.where(is_qr, conv * qr_uplift, conv)
 conv_series = pd.to_numeric(pd.Series(conv, index=model.index), errors="coerce").fillna(0.0)
 model["Conversion_Effective"] = np.maximum(conv_series.values, 0.0)
 
-# ---------------- Units & Revenue per channel ----------------
+# ───────────────────────── Units & revenue per channel ─────────────────────────
 price = model["Price"].fillna(0.0)
 cost = model["Cost"].fillna(0.0)
 
 # Units
 model["Units_Raw"] = model["Effective_Viewers"] * model["Conversion_Effective"]
-
 if respect_inventory:
-    # Simple per-channel cap (keeps code simple — avoids global allocation solver)
     inv = model["Inventory_Level"].fillna(0.0)
     model["Units_Sold"] = np.minimum(model["Units_Raw"], inv)
 else:
     model["Units_Sold"] = model["Units_Raw"]
 
-# Fees (Amazon)
-amz_fee = np.where(
+# Amazon fee (override or CSV)
+model["Amazon_Fee_Effective"] = np.where(
     model["Channel"].str.lower().eq("amazon"),
     0.30 if apply_amazon_fee_override else model.get("Amazon_Fee_Percent", pd.Series(0, index=model.index)).fillna(0.0),
-    0.0
+    0.0,
 )
 
 # Revenue pieces
@@ -139,11 +141,11 @@ model["Amazon_Fees"] = model["Units_Sold"] * price * model["Amazon_Fee_Effective
 model["Affiliate_Rebate"] = np.where(
     (model["Channel"].str.lower().eq("amazon")) & affiliate_on,
     model["Units_Sold"] * price * model.get("Affiliate_Commission_Percent", pd.Series(0, index=model.index)).fillna(0.0),
-    0.0
+    0.0,
 )
 model["Revenue_Net"] = model["Revenue_Gross"] - model["COGS"] - model["Amazon_Fees"] + model["Affiliate_Rebate"]
 
-# ---------------- Scenario totals ----------------
+# ───────────────────────── Scenario totals ─────────────────────────
 # Status-quo: CPM × total impressions across titles
 statusquo_net = float((df_views["Ad_Impressions"].sum() / 1000.0) * cpm)
 
@@ -151,8 +153,7 @@ by_channel = (model.groupby("Channel", as_index=False)
               .agg(Net_Revenue=("Revenue_Net", "sum"),
                    Units=("Units_Sold", "sum")))
 
-# Pull totals per channel (ensure missing channels return 0)
-def ch_total(name):
+def ch_total(name: str) -> float:
     row = by_channel[by_channel["Channel"].str.lower() == name.lower()]
     return float(row["Net_Revenue"].iloc[0]) if not row.empty else 0.0
 
@@ -160,14 +161,14 @@ net_amazon = ch_total("Amazon")
 net_shop = ch_total("ShopDisney")
 net_qr = ch_total("Disney+ QR")
 
-# ---------------- KPIs ----------------
+# ───────────────────────── KPIs ─────────────────────────
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Current Ads (CPM) — Net", f"{statusquo_net:,.0f}")
 c2.metric("Merch via Amazon — Net", f"{net_amazon:,.0f}")
 c3.metric("Merch via ShopDisney — Net", f"{net_shop:,.0f}")
 c4.metric("Merch via Disney+ QR — Net", f"{net_qr:,.0f}")
 
-# ---------------- Comparison chart with labels & uplift ----------------
+# ───────────────────────── Comparison chart ─────────────────────────
 compare_df = pd.DataFrame({
     "Scenario": ["Current Ads", "Amazon Merch", "ShopDisney Merch", "Disney+ QR Merch"],
     "Net_Revenue": [statusquo_net, net_amazon, net_shop, net_qr],
@@ -196,7 +197,7 @@ current = float(compare_df.loc["Current Ads", "Net_Revenue"])
 x_positions = [b.get_x() + b.get_width()/2 for b in bars]
 heights = [b.get_height() for b in bars]
 
-def annotate_uplift(ix, color, label_text):
+def annotate_uplift(ix: int, color: str):
     val = heights[ix]
     if current > 0:
         pct = (val - current) / current
@@ -209,29 +210,35 @@ def annotate_uplift(ix, color, label_text):
             arrowprops=dict(arrowstyle="-", color=color, lw=1)
         )
 
-# annotate for bars 1,2,3 (Amazon/Shop/QR)
-annotate_uplift(1, "#1e88e5", "Amazon")
-annotate_uplift(2, "#2e7d32", "ShopDisney")
-annotate_uplift(3, "#fbc02d", "QR")
+# annotate Amazon/Shop/QR (bars 1,2,3)
+annotate_uplift(1, "#1e88e5")
+annotate_uplift(2, "#2e7d32")
+annotate_uplift(3, "#fbc02d")
 
 ax.tick_params(axis="x", labelsize=11)
 ax.tick_params(axis="y", labelsize=10)
 plt.subplots_adjust(top=0.86)
 st.pyplot(fig)
 
-# ---------------- Channel detail ----------------
+# ───────────────────────── Channel detail ─────────────────────────
 st.markdown("### Channel Detail (Net & Units)")
 st.dataframe(by_channel.rename(columns={"Net_Revenue": "Net_Revenue_USD"}), use_container_width=True)
 
-# ---------------- SKU × Title × Channel table ----------------
+# ───────────────────────── SKU × Title × Channel table ─────────────────────────
 st.markdown("### SKU × Title × Channel Detail")
 cols = ["SKU", "Product_Name", "Title_Name", "Channel",
         "Price", "Cost", "Inventory_Level",
         "Alloc", "Effective_Viewers", "Conversion_Effective",
         "Units_Sold", "Revenue_Net"]
 have = [c for c in cols if c in model.columns]
-st.dataframe(model[have].sort_values(["Title_Name", "SKU", "Channel"]).reset_index(drop=True),
-             use_container_width=True)
+st.dataframe(
+    model[have].sort_values(["Title_Name", "SKU", "Channel"]).reset_index(drop=True),
+    use_container_width=True
+)
 
 st.markdown("---")
-st.caption("Status-quo = CPM × total impressions (viewership.csv). Merch scenarios allocate title viewers to Amazon, ShopDisney, and Disney+ QR per sliders, apply per-channel conversions & fees, and compute net revenue. Inventory caps are per-channel for simplicity.")
+st.caption(
+    "Status-quo = CPM × total impressions (viewership.csv). Merch scenarios allocate title viewers to "
+    "Amazon, ShopDisney, and Disney+ QR per sliders, apply per-channel conversions & fees, and compute "
+    "net revenue. Inventory caps are per-channel for simplicity."
+)
